@@ -33,7 +33,7 @@ sh script/teacher.sh
 ## Others
 
 * To get the results on STAC reported in our paper, please use the code under Code4STAC. We find that the GNN can't be fully trained due to the small training set. Even the teacher model can't perform well. So, we combine the hidden states from HGRU with learned GNN edges to do prediction. Molweni with more training data won't run into this problem.
-* We also provide the example for implementing ELECTRA, which is under the ELECTRA-example dir. 
+* We also provide the code for implementing ELECTRA-small. You can find more details on the [Huggingface](https://huggingface.co/transformers/model_doc/electra.html).
 
 
 

@@ -6,7 +6,7 @@ from torch.optim import lr_scheduler, Adam, SGD
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModel, AdamW
 
-from model import TeacherModel, StudentModel, Bridge, PathClassifier
+from model_electra import TeacherModel, StudentModel, Bridge, PathClassifier
 from dialogue_dataset import DialogueDataset, DiscourseGraph
 from tqdm import tqdm
 
@@ -37,13 +37,13 @@ if __name__ == '__main__':
     parser.add_argument('--valid_dist', type=int, default=4)
     parser.add_argument('--freeze_layer_num', type=int, default=9)
     # train
-    parser.add_argument('--learning_rate', type=float, default=0.1)
-    parser.add_argument('--min_lr', type=float, default=0.01)
+    parser.add_argument('--learning_rate', type=float, default=3e-4)
+    parser.add_argument('--pretrained_model_learning_rate', type=float, default=1e-5)
     parser.add_argument('--epoches', type=int, default=10)
     parser.add_argument('--pool_size', type=int, default=1)
     parser.add_argument('--eval_pool_size', type=int, default=1)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--gamma', type=float, default=0.998)
+    parser.add_argument('--gamma', type=float, default=0)
     parser.add_argument('--ratio', type=float, default=1.0)
     # save
     parser.add_argument('--save_model', action='store_true')
@@ -173,24 +173,27 @@ if __name__ == '__main__':
             model = StudentModel(params=args, pretrained_model=pretrained_model)
 
             bridges=_get_clones(Bridge(params=args), args.num_layers)
-            param_groups=[{'params':model.parameters(), 'lr':args.learning_rate},
+            param_groups=[{'params':[param for name, param in model.named_parameters() if
+                            name.split('.')[0] != 'pretrained_model'], 'lr':args.learning_rate},
                           {'params':bridges.parameters(), 'lr':args.learning_rate}]
             t_model = t_model.to(args.device)
             bridge = bridges.to(args.device)
             t_model.eval()
         elif args.task=='student':
             model = StudentModel(params=args, pretrained_model=pretrained_model)
-            param_groups = [{'params': model.parameters(), 'lr': args.learning_rate}]
+            param_groups = [{'params': [param for name, param in model.named_parameters() if
+                            name.split('.')[0] != 'pretrained_model'], 'lr': args.learning_rate}]
         elif args.task=='teacher':
             model = TeacherModel(params=args, pretrained_model=pretrained_model)
-            param_groups = [{'params': model.parameters(), 'lr': args.learning_rate}]
+            param_groups = [{'params': [param for name, param in model.named_parameters() if
+                            name.split('.')[0] != 'pretrained_model'], 'lr': args.learning_rate}]
         if args.classify_loss:
             classifier = PathClassifier(params=args)
             param_groups.append({'params': classifier.parameters(),'lr':args.learning_rate})
             classifiers = classifier.to(args.device)
-        optimizer = AdamW(params=[{'params': filter(lambda p: p.requires_grad, model.pretrained_model.parameters()),
-                                   'lr': args.pretrained_model_learning_rate},
-                                  {'params': param_groups, 'lr': args.learning_rate}], lr=args.learning_rate)
+        param_groups.append({'params': filter(lambda p: p.requires_grad, model.pretrained_model.parameters()),
+                             'lr': args.pretrained_model_learning_rate})
+        optimizer = AdamW(params=param_groups, lr=args.learning_rate)
         scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=args.gamma) if args.gamma > 0 else None
 
         model = model.to(args.device)
@@ -275,7 +278,7 @@ if __name__ == '__main__':
                     accum_train_link_loss, accum_train_label_loss, accum_distill_loss = 0, 0, 0
                 total_step += 1
 
-                if optimizer.param_groups[0]['lr'] > args.min_lr and scheduler:
+                if scheduler and optimizer.param_groups[0]['lr'] > args.min_lr:
                     scheduler.step()
             print('{} epoch training done, begin evaluating..'.format(epoch + 1))
             accum_eval_link_loss, accum_eval_label_loss = [], []
